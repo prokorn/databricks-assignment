@@ -1,0 +1,14 @@
+# STAGE 1 and STAGE 2 of Databricks lab nr 2:
+
+## Stage 1 containe 3 screenshots with created Key Vault, Storage Account (ADLS Gen2), Databricks workspace on Azure Services
+*** databricks-assignment/Lab2/Stage 1 ***
+
+
+# Stage 2 containe medallion schemas: bronze, silver and gold. *Auto Loader (Bronze Ingestion). Automation (Databricks Workflows). Secret Management and Mounting:
+*** 1. Creation of Schemas:
+* `konstyantyn_bronze`
+* `konstyantyn_silver`
+* `konstyantyn_gold`
+2. Stream import (Structured Streaming) of CSV/JSON files to Bronze Delta tables with automatic schema detection has been configured.
+3. A Databricks Job has been created and successfully tested to automatically start ingestion based on a shared All-Purpose cluster.
+4. Created a personal *Secret Scope* (`konstyantyn_key_secret_scope`), integrated with **Azure Key Vault**, however here i had some problems and not sure if it work 100 % correctly due to acceses.. ***
