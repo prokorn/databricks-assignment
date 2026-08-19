@@ -1,0 +1,17 @@
+bundle:
+  name: lab5_movies_bundle
+
+resources:
+  pipelines:
+    movies_lakeflow_pipeline:
+      name: movies_lakeflow_pipeline
+      catalog: main
+      target: lab_data
+      libraries:
+        - notebook:
+            path: ./01_movies_declarative_pipeline.py
+
+targets:
+  dev:
+    mode: development
+    default: true
