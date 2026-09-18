@@ -6,7 +6,7 @@ resources:
       catalog: ${var.catalog}
       edition: ADVANCED
       channel: CURRENT
-      photon: false
+      photon: true
       serverless: true
       configuration:
         movies.source_volume: ${var.volume_path}
