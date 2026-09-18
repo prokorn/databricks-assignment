@@ -23,20 +23,23 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies & Databricks CLI
+        shell: bash
         run: |
-          pip install pytest pyspark
-          curl -fsSL https://raw.githubusercontent.com/databricks/cli/main/install.sh | sh
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install pytest pyspark
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks version
 
       - name: Run Pytest Unit Tests
         working-directory: Lab 8
         env:
           PYTHONPATH: ${{ github.workspace }}/Lab 8/src
-        run: pytest "tests/test_transforms.py" -v
+        run: pytest tests/test_transforms.py -v
 
       - name: Validate Databricks Asset Bundle
-        run: |
-          cd "Lab 8"
-          databricks bundle validate -t dev
+        working-directory: Lab 8
+        run: databricks bundle validate -t dev
 
   deploy:
     name: Deploy to PROD
@@ -51,14 +54,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Databricks CLI
-        run: curl -fsSL https://raw.githubusercontent.com/databricks/cli/main/install.sh | sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks version
 
       - name: Deploy Bundle to PROD
-        run: |
-          cd "Lab 8"
-          databricks bundle deploy -t prod --auto-approve
+        working-directory: Lab 8
+        run: databricks bundle deploy -t prod --auto-approve
 
       - name: Trigger PROD Workflow Run
-        run: |
-          cd "Lab 8"
-          databricks bundle run -t prod movies_daily_dq_workflow
+        working-directory: Lab 8
+        run: databricks bundle run -t prod movies_daily_dq_workflow
