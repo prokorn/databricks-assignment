@@ -1,0 +1,17 @@
+resources:
+  pipelines:
+    movies_dlt_pipeline:
+      name: "[${bundle.target}] Movies Ingestion & Silver Pipeline"
+      target: ${var.schema}
+      catalog: ${var.catalog}
+      edition: ADVANCED
+      channel: CURRENT
+      photon: false
+      serverless: true
+      configuration:
+        movies.source_volume: ${var.volume_path}
+      libraries:
+        - file:
+            path: ../src/01_movies_dlt_pipeline.py
+      continuous: false
+      development: ${bundle.target == 'dev'}
