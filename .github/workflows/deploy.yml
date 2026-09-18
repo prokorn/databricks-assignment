@@ -28,7 +28,10 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/databricks/cli/main/install.sh | sh
 
       - name: Run Pytest Unit Tests
-        run: pytest "Lab 8/tests/test_transforms.py" -v
+        working-directory: Lab 8
+        env:
+          PYTHONPATH: ${{ github.workspace }}/Lab 8/src
+        run: pytest "tests/test_transforms.py" -v
 
       - name: Validate Databricks Asset Bundle
         run: |
