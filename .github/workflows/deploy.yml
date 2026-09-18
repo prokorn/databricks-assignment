@@ -1,0 +1,61 @@
+name: CI/CD Lab 8 Pipeline
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Test & Validate Bundle
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies & Databricks CLI
+        run: |
+          pip install pytest pyspark
+          curl -fsSL https://raw.githubusercontent.com/databricks/cli/main/install.sh | sh
+
+      - name: Run Pytest Unit Tests
+        run: pytest "Lab 8/tests/test_transforms.py" -v
+
+      - name: Validate Databricks Asset Bundle
+        run: |
+          cd "Lab 8"
+          databricks bundle validate -t dev
+
+  deploy:
+    name: Deploy to PROD
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        run: curl -fsSL https://raw.githubusercontent.com/databricks/cli/main/install.sh | sh
+
+      - name: Deploy Bundle to PROD
+        run: |
+          cd "Lab 8"
+          databricks bundle deploy -t prod --auto-approve
+
+      - name: Trigger PROD Workflow Run
+        run: |
+          cd "Lab 8"
+          databricks bundle run -t prod movies_daily_dq_workflow
