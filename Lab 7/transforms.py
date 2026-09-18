@@ -30,7 +30,7 @@ def add_surrogate_movie_key(df: DataFrame) -> DataFrame:
     """Generate deterministic MD5 surrogate key for dim_movies."""
     return df.withColumn(
         "movie_id",
-        md5(concat(coalesce(col("title"), lit("")), coalesce(col("country"), lit(""))))
+        md5(concat(coalesce(col("title"), lit("")), coalesce(col("country"), lit("")), coalesce(col("release_year").cast("string"), lit(""))))
     )
 
 def split_and_trim_genres(df: DataFrame) -> DataFrame:
