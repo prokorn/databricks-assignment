@@ -14,4 +14,4 @@ resources:
         - file:
             path: ../src/01_movies_dlt_pipeline.py
       continuous: false
-
+      development: false
