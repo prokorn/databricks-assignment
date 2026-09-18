@@ -1,0 +1,37 @@
+bundle:
+  name: movies_analytics_bundle
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: "Target Unity Catalog"
+    default: main
+  schema:
+    description: "Target schema for movie tables"
+    default: lab_data
+  volume_path:
+    description: "Source volume path for raw CSV files"
+    default: /Volumes/main/lab_data/movies_volume
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: lab_data_dev
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: lab_data_prod
+      volume_path: /Volumes/main/lab_data_prod/movies_volume
+    run_as:
+      user_name: ${workspace.current_user.userName}
