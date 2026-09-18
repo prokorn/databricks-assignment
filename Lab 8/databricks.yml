@@ -26,12 +26,12 @@ targets:
       schema: lab_data_dev
 
   prod:
-    mode: production
-    workspace:
-      root_path: /Shared/.bundle/${bundle.name}/${bundle.target}
-    variables:
-      catalog: main
-      schema: lab_data_prod
-      volume_path: /Volumes/main/lab_data_prod/movies_volume
-    run_as:
-      user_name: ${workspace.current_user.userName}
+      mode: production
+      workspace:
+        root_path: /Shared/.bundle/${bundle.name}/${bundle.target}
+      variables:
+        catalog: main
+        schema: lab_data_prod
+        volume_path: /Volumes/main/lab_data/movies_volume
+      run_as:
+        user_name: ${workspace.current_user.userName}
