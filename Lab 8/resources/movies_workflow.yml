@@ -13,7 +13,7 @@ resources:
           depends_on:
             - task_key: run_silver_pipeline
           notebook_task:
-            notebook_path: ../src/movies_gold_layer
+            notebook_path: ../src/movies_gold_layer.ipynb
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
@@ -23,7 +23,7 @@ resources:
           depends_on:
             - task_key: build_gold_layer
           notebook_task:
-            notebook_path: ../src/02_delta_constraints
+            notebook_path: ../src/02_delta_constraints.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
@@ -43,7 +43,7 @@ resources:
           depends_on:
             - task_key: reconciliation_check
           notebook_task:
-            notebook_path: ../src/04_gold_dq_checks
+            notebook_path: ../src/04_gold_dq_checks.ipynb
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
