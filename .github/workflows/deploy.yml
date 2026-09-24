@@ -62,3 +62,30 @@ jobs:
       - name: Trigger PROD Workflow Run
         working-directory: Lab 8
         run: databricks bundle run -t prod movies_daily_dq_workflow
+
+  api_automation:
+    name: Lab 9 - REST API Automation
+    needs: deploy
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Lab 9 Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r "Lab 9/requirements.txt"
+
+      - name: Execute API Automation Script
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST_LAB9 }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN_LAB9 }}
+          DATABRICKS_JOB_ID: ${{ secrets.DATABRICKS_JOB_ID_LAB9 }}
+        run: |
+          python "Lab 9/pipeline_runner.py"
