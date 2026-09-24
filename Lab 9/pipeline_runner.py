@@ -7,14 +7,16 @@ from databricks.sdk.service.compute import State
 
 load_dotenv()
 
-DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
-DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
-JOB_ID = os.getenv("DATABRICKS_JOB_ID")
-CLUSTER_ID = os.getenv("DATABRICKS_CLUSTER_ID")
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST", "").strip().strip('"').strip("'")
+DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "").strip().strip('"').strip("'")
+JOB_ID = os.getenv("DATABRICKS_JOB_ID", "").strip().strip('"').strip("'")
+CLUSTER_ID = os.getenv("DATABRICKS_CLUSTER_ID", "").strip().strip('"').strip("'")
 
 if not DATABRICKS_HOST or not DATABRICKS_TOKEN:
     print("❌ Error: Missing DATABRICKS_HOST or DATABRICKS_TOKEN.")
     sys.exit(1)
+if not (DATABRICKS_HOST.startswith("http://") or DATABRICKS_HOST.startswith("https://")):
+    DATABRICKS_HOST = f"https://{DATABRICKS_HOST}"
 
 w = WorkspaceClient(host=DATABRICKS_HOST, token=DATABRICKS_TOKEN)
 
