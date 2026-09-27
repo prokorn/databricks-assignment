@@ -45,13 +45,15 @@ These events are ingested into **`main.lab_data.movie_stream_events`** — a Del
 
 ### Notebook Cell Map
 
-| Cell | Title | Purpose |
+| Part | Title | Purpose |
 | --- | --- | --- |
-| 1 | Setup — Catalog & Schema Context | Set `CATALOG = main`, `SCHEMA = lab_data` |
-| 2 | Setup — Delta Table with CDF | Create `movie_stream_events` table with `delta.enableChangeDataFeed = true` |
-| 3 | Step 1 — Event Producer with Intentional Duplicates | Generate 5 unique + 2 duplicate events (7 total) |
-| 4 | Step 2 — Idempotent Ingestion via MERGE INTO | Two-tier dedup: `dropDuplicates` + `MERGE INTO ... WHEN NOT MATCHED` |
-| 5 | Step 3 — Idempotency Test (Network Retry Simulation) | Re-send the same batch → verify row count stays at 5 |
+| **Prerequisites** | SDK Install & Configuration | Install `databricks-zerobus-ingest-sdk`, configure service principal credentials, grant Unity Catalog permissions |
+| **Part 1** | Setup — Delta Table with CDF | Create `movie_stream_events` table with `delta.enableChangeDataFeed = true` using `CREATE TABLE IF NOT EXISTS` |
+| **Part 2** | Event Generation with Duplicates | Generate 5 unique + 2 duplicate events (7 total) using Unix microsecond timestamps |
+| **Part 3** | Push-Based Ingestion via Zerobus SDK | Push events directly to Delta via `ZerobusSdk.create_stream()` and `ingest_record_offset()` over gRPC |
+| **Part 4** | Idempotency via Deduplication View | Create `movie_stream_events_dedup` view using `ROW_NUMBER() PARTITION BY event_id` for exactly-once semantics |
+| **Part 5** | Testing Network Retry Behavior | Re-send the same batch via Zerobus → verify raw table grows but dedup view stays at 5 rows |
+| **Part 6** | Architecture Comparison | Compare Kafka vs Zerobus across cost, operations, and use cases with TCO estimates |
 
 ---
 
@@ -137,7 +139,7 @@ In real-world streaming systems, the network between the producer and the ingest
 is inherently unreliable. The typical failure mode:
 
 1. Producer sends an event with `event_id = X`.
-2. The serverless endpoint receives and commits the event to Delta Lake.
+2. The Zerobus endpoint receives and commits the event to Delta Lake.
 3. The network ACK is lost or delayed (timeout, DNS blip, connection reset).
 4. The producer **does not know** whether the event was persisted.
 5. The producer **re-sends** the same event (same `event_id = X`).
@@ -145,79 +147,83 @@ is inherently unreliable. The typical failure mode:
 This results in **at-least-once delivery** — the event is delivered one or more times. Without
 idempotent handling, each re-send creates a duplicate row in the target table.
 
-### Two-Tier Deduplication Implementation
+### Downstream Deduplication Strategy
 
-The notebook implements deduplication at two levels:
+**Key Insight:** Zerobus Ingest provides **at-least-once delivery** and only performs INSERT operations
+(no MERGE/upsert capability). Instead of deduplicating during ingestion, we achieve idempotency at the
+**consumption layer** via a deduplication view.
 
-#### Tier 1 — Intra-Batch Deduplication (`dropDuplicates`)
+#### The Two-Layer Pattern
 
-Before writing to the target table, the incoming DataFrame is de-duplicated within the batch
-itself. This handles the case where the producer sends the same `event_id` multiple times in a
-single batch:
+1. **Raw Table** (`movie_stream_events`): Contains all records including duplicates from network retries
+   - Provides at-least-once delivery semantics
+   - Full audit trail of every ingestion attempt
+   - Enables replay and debugging
+
+2. **Dedup View** (`movie_stream_events_dedup`): Provides exactly-once semantics for consumers
+   - Uses `ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY ingested_at)` to keep only the first occurrence
+   - All downstream consumers query the view, not the raw table
+   - Zero maintenance overhead (automatically reflects raw table updates)
+
+#### Implementation
 
 ```python
-# Convert the event list to a Spark DataFrame and add ingestion timestamp
-incoming_df = (spark.createDataFrame(events_data, schema=schema)
-                   .withColumn("ingested_at", F.current_timestamp()))
+# Zerobus ingestion (INSERT-only, at-least-once)
+from zerobus.sdk.sync import ZerobusSdk
+from zerobus.sdk.shared import TableProperties
 
-# Drop intra-batch duplicates before writing
-deduped_incoming = incoming_df.dropDuplicates(["event_id"])
-deduped_incoming.createOrReplaceTempView("staged_incoming_events")
+sdk = ZerobusSdk(ZEROBUS_SERVER_ENDPOINT, DATABRICKS_WORKSPACE_URL)
+stream = sdk.create_stream(CLIENT_ID, CLIENT_SECRET, TableProperties(TARGET_TABLE))
+
+for event in events_data:
+    record = event.copy()
+    record["ingested_at"] = int(datetime.now().timestamp() * 1000000)  # Unix microseconds
+    stream.ingest_record_offset(record)
+
+stream.flush()  # Block until all records are durable
+stream.close()
 ```
 
-**Why this matters:** If a batch contains 7 events where 2 share `event_id` with earlier entries
-in the same batch, `dropDuplicates(["event_id"])` collapses them to 5 unique rows before the
-MERGE ever runs.
-
-#### Tier 2 — Inter-Batch Idempotency (`MERGE INTO ... WHEN NOT MATCHED`)
-
-The staged, de-duplicated batch is merged into the target Delta table using a conditional insert.
-If the `event_id` already exists in the target (from a prior batch or retry), the row is silently
-skipped:
-
 ```sql
-MERGE INTO main.lab_data.movie_stream_events AS target
-USING staged_incoming_events AS source
-  ON target.event_id = source.event_id
-WHEN NOT MATCHED THEN
-  INSERT (event_id, user_id, movie_title, event_type,
-          watch_time_seconds, event_timestamp, ingested_at)
-  VALUES (source.event_id, source.user_id, source.movie_title, source.event_type,
-          source.watch_time_seconds, source.event_timestamp, source.ingested_at)
+-- Deduplication view (exactly-once for consumers)
+CREATE OR REPLACE VIEW movie_stream_events_dedup AS
+SELECT event_id, user_id, movie_title, event_type, watch_time_seconds, event_timestamp, ingested_at
+FROM (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY ingested_at) AS rn
+    FROM movie_stream_events
+)
+WHERE rn = 1
 ```
 
 **Why this matters:** When the producer re-sends a previously committed batch (network retry),
-the MERGE's `WHEN NOT MATCHED` clause ensures that every `event_id` already present in the
-target is ignored. The table converges to the same final state regardless of how many times a
-batch is replayed.
+Zerobus INSERTs the duplicate records into the raw table. The dedup view automatically filters
+them out, keeping only the first occurrence of each `event_id`. Consumers see exactly-once
+semantics without any changes to their queries.
 
 ### Verification Test Results
 
-The notebook includes a deliberate stress test (Cell 3 → Cell 5):
+The notebook includes a deliberate stress test:
 
-| Phase | Events Generated | Events Sent to Target | Unique Rows in Table |
+| Phase | Events Pushed | Raw Table Rows | Dedup View Rows |
 | --- | --- | --- | --- |
-| **Batch 1 — Initial Ingest** | 7 (5 unique + 2 intentional duplicates) | 7 | **5** |
-| **Batch 2 — Network Retry (same batch)** | — | 7 (re-sent) | **5** (unchanged) |
+| **Initial Ingest** | 7 (5 unique + 2 intentional duplicates) | 7 | **5** |
+| **Network Retry** | 7 (same batch re-sent via Zerobus) | 14 | **5** (unchanged) |
 
-**Result:** The table contains exactly **5 unique records** after both ingestions. The 2
-intra-batch duplicates were eliminated by `dropDuplicates`, and the 7 re-sent events in the
-retry batch were all matched against existing rows and skipped by the `MERGE WHEN NOT MATCHED`
-clause.
+**Result:** The raw table grows to 14 rows (all duplicates preserved), but the dedup view shows
+exactly **5 unique records** throughout. This proves the system handles network retries gracefully
+at the consumption layer.
 
 ### Idempotency Guarantee
 
 > For any batch `B` and any positive integer `k`, ingesting `B` exactly `k` times produces the
-> same final table state as ingesting `B` exactly once.
+> same dedup view state as ingesting `B` exactly once.
 
-This is the defining property of an idempotent write operation. The implementation satisfies it
-because:
+This is the defining property of an idempotent system. The implementation satisfies it because:
 
-1. `dropDuplicates(["event_id"])` collapses intra-batch duplicates → each `event_id` appears at
-   most once in the staged view.
-2. `MERGE INTO ... ON target.event_id = source.event_id WHEN NOT MATCHED THEN INSERT` is a
-   conditional insert keyed on the natural primary key (`event_id`).
-3. Delta Lake's ACID transaction guarantees ensure the MERGE is atomic — no partial writes.
+1. Zerobus Ingest provides reliable at-least-once delivery (no data loss)
+2. The raw table preserves every ingestion attempt (full audit trail)
+3. The dedup view uses `ROW_NUMBER() ... ORDER BY ingested_at` to deterministically select the first occurrence
+4. Delta Lake's ACID guarantees ensure consistent reads
 
 ---
 
@@ -280,6 +286,24 @@ because:
 | **Best for** | Real-time inter-service messaging, complex fan-out, ultra-low latency | Lakehouse analytics, cost optimization, operational simplicity |
 | **Worst for** | Cost-sensitive workloads, teams without Kafka ops expertise | Sub-second inter-service communication, multi-consumer real-time fan-out |
 | **This lab** | — | ✓ Implemented and verified |
+
+---
+
+### Service Principal Permissions
+
+The service principal requires three Unity Catalog permissions:
+
+```sql
+GRANT USE CATALOG ON CATALOG main TO `<service-principal-uuid>`;
+GRANT USE SCHEMA ON SCHEMA main.lab_data TO `<service-principal-uuid>`;
+GRANT MODIFY, SELECT ON TABLE main.lab_data.movie_stream_events TO `<service-principal-uuid>`;
+```
+
+### Table Requirements
+
+- Must be a **managed Delta table** (not external)
+- Use `CREATE TABLE IF NOT EXISTS` — Zerobus does not support recreating target tables
+- Change Data Feed (CDF) is optional but recommended for downstream CDC consumers
 
 ---
 
