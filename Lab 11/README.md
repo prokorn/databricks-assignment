@@ -291,12 +291,35 @@ This is the defining property of an idempotent system. The implementation satisf
 
 ### Service Principal Permissions
 
-The service principal requires three Unity Catalog permissions:
+The service principal requires three Unity Catalog permissions. Credentials are stored in
+Databricks Secrets (scope: `zerobus-lab11`) — no secrets are hardcoded in the notebook.
 
-```sql
-GRANT USE CATALOG ON CATALOG main TO `<service-principal-uuid>`;
-GRANT USE SCHEMA ON SCHEMA main.lab_data TO `<service-principal-uuid>`;
-GRANT MODIFY, SELECT ON TABLE main.lab_data.movie_stream_events TO `<service-principal-uuid>`;
+**One-time secret scope setup** (run in a notebook or via SDK):
+
+```python
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+w.secrets.create_scope("zerobus-lab11", initial_manage_principal="users")
+w.secrets.put_secret("zerobus-lab11", "client-id", string_value="<service-principal-uuid>")
+w.secrets.put_secret("zerobus-lab11", "client-secret", string_value="<service-principal-secret>")
+```
+
+**Notebook loads credentials via:**
+```python
+CLIENT_ID = dbutils.secrets.get(scope="zerobus-lab11", key="client-id")
+CLIENT_SECRET = dbutils.secrets.get(scope="zerobus-lab11", key="client-secret")
+```
+
+**Grant permissions** (run once, uses `CLIENT_ID` from secrets):
+
+```python
+for stmt in [
+    f"GRANT USE CATALOG ON CATALOG main TO `{CLIENT_ID}`",
+    f"GRANT USE SCHEMA ON SCHEMA main.lab_data TO `{CLIENT_ID}`",
+    f"GRANT MODIFY, SELECT ON TABLE main.lab_data.movie_stream_events TO `{CLIENT_ID}`",
+]:
+    spark.sql(stmt)
 ```
 
 ### Table Requirements
