@@ -123,7 +123,7 @@ These events are ingested into **`main.lab_data.movie_stream_events`** — a Del
 | **System Decoupling & Consumer Flexibility** | Strong decoupling — multiple transactional systems (billing, recommendation, notification) consume the same stream independently via separate consumer groups. Fan-out is a first-class feature | Centralized lakehouse ingestion — all events land in Delta Lake first. Downstream consumers read from the Delta table via batch or structured streaming queries. Decoupling is achieved at the storage layer, not the broker layer |
 | **Latency** | Sub-millisecond to low single-digit milliseconds (intra-cluster, Kafka-to-consumer). End-to-end producer-to-Delta depends on Spark Streaming micro-batch interval (typically 100ms–seconds) | Latency determined by the HTTPS ingest API round-trip + Delta commit. Typically low single-digit seconds. Not suited for <10ms microservice-to-microservice communication |
 | **Throughput** | Very high — millions of events/sec across partitioned topics. Throughput scales horizontally by adding partitions and brokers | Moderate-to-high — bounded by serverless endpoint capacity. Sufficient for lakehouse analytics pipelines but not designed for ultra-high-throughput inter-service messaging |
-| **Delivery Semantics** | Configurable: at-most-once, at-least-once, exactly-once (via transactions / idempotent producers) | At-least-once (network retries may re-send events). Idempotency must be implemented at the ingestion layer (MERGE INTO) |
+| **Delivery Semantics** | Configurable: at-most-once, at-least-once, exactly-once (via transactions / idempotent producers) | At-least-once (network retries may re-send events). Idempotency achieved via downstream deduplication view (ROW_NUMBER() PARTITION BY event_id) |
 | **Replay Capability** | Native replay via Kafka offsets — consumers can rewind to any position in the stream | Replay via Delta Lake time travel / CDF — `DESCRIBE HISTORY` or CDF reads can reconstruct prior states |
 | **Schema Evolution** | Requires external Schema Registry (Confluent) for Avro/Protobuf schema management | Native schema evolution through Delta Lake — `ALTER TABLE ADD COLUMNS`, schema-on-read, `MERGE WITH SCHEMA EVOLUTION` |
 | **Governance** | Broker-level ACLs, separate from lakehouse governance | Native Unity Catalog governance — row-level security, column masks, audit logs, lineage, tags, all in one place |
@@ -279,15 +279,40 @@ This is the defining property of an idempotent system. The implementation satisf
    └──────────┘ └──────┘ │         │ └──────────┘ └──────┘
 ```
 
-### Summary
-
-| | Kafka-Style (Bus) | Zero-Bus (Direct Ingest) |
-| --- | --- | --- |
-| **Best for** | Real-time inter-service messaging, complex fan-out, ultra-low latency | Lakehouse analytics, cost optimization, operational simplicity |
-| **Worst for** | Cost-sensitive workloads, teams without Kafka ops expertise | Sub-second inter-service communication, multi-consumer real-time fan-out |
-| **This lab** | — | ✓ Implemented and verified |
-
 ---
+
+## 5. Critical Implementation Notes
+
+### Timestamp Format Requirements
+
+**CRITICAL:** Zerobus Ingest requires TIMESTAMP columns to be provided as **Unix microseconds (integer format)**,
+not as formatted timestamp strings. This is a strict schema validation requirement.
+
+```python
+# ✅ CORRECT: Unix microseconds (integer)
+current_time_us = int(datetime.now().timestamp() * 1000000)
+event = {
+    "event_id": str(uuid.uuid4()),
+    "event_timestamp": current_time_us,  # Integer: 1727451440690000
+    # ... other fields
+}
+
+# ❌ WRONG: Formatted timestamp strings (will fail with "invalid digit found in string")
+event = {
+    "event_timestamp": "2026-09-27 16:27:20",  # String format rejected
+    "event_timestamp": "2026-09-27T16:27:20Z",  # ISO8601 rejected
+    "event_timestamp": "2026-09-27T16:27:20.690000",  # With microseconds still rejected
+}
+```
+
+**Error symptom:** `Record decoder/encoder error: invalid digit found in string at line 1 column XXX`
+always points to a timestamp field position.
+
+### Table Requirements
+
+- Must be a **managed Delta table** (not external)
+- Use `CREATE TABLE IF NOT EXISTS` — Zerobus does not support recreating target tables
+- Change Data Feed (CDF) is optional but recommended for downstream CDC consumers
 
 ### Service Principal Permissions
 
@@ -321,13 +346,5 @@ for stmt in [
 ]:
     spark.sql(stmt)
 ```
-
-### Table Requirements
-
-- Must be a **managed Delta table** (not external)
-- Use `CREATE TABLE IF NOT EXISTS` — Zerobus does not support recreating target tables
-- Change Data Feed (CDF) is optional but recommended for downstream CDC consumers
-
----
 
 *Lab 11 — Zero-Bus Streaming with Zerobus · Databricks Assignment · 2026*
