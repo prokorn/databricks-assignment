@@ -188,3 +188,81 @@ display(spark.sql(f"SELECT chunk_id, movie_title, category, chunk_index, content
 
 # COMMAND ----------
 
+# DBTITLE 1,Step 5: Vector Search Header
+# MAGIC %md
+# MAGIC ## Step 5: Databricks Vector Search Index Setup
+# MAGIC
+# MAGIC Create a native Databricks Vector Search endpoint and Delta Sync Index on the `movie_knowledge_chunks` table for production-grade managed similarity search. This replaces manual pandas cosine similarity with a scalable, serverless search API.
+# MAGIC
+# MAGIC **If the workspace lacks Enterprise Serverless quota**, the notebook gracefully falls back to the in-memory cosine similarity approach used in notebook 02.
+# MAGIC
+# MAGIC **Steps:**
+# MAGIC 1. Verify data integrity (12 chunks, no null embeddings)
+# MAGIC 2. Create a Vector Search endpoint
+# MAGIC 3. Create a Delta Sync Index (self-managed embeddings, dimension 384)
+
+# COMMAND ----------
+
+# DBTITLE 1,Vector Search Setup & Integrity Check
+# --- Step 5a: Data Integrity Check ---
+chunk_count = spark.sql(f"SELECT COUNT(*) AS cnt FROM {CATALOG}.{SCHEMA}.movie_knowledge_chunks").collect()[0]["cnt"]
+null_embeddings = spark.sql(f"SELECT COUNT(*) AS cnt FROM {CATALOG}.{SCHEMA}.movie_knowledge_chunks WHERE embedding IS NULL").collect()[0]["cnt"]
+
+print("📊 Data Integrity Check:")
+print(f"  • Total chunks: {chunk_count}")
+print(f"  • Null embeddings: {null_embeddings}")
+
+if chunk_count != 12:
+    print(f"⚠️ Warning: Expected 12 chunks, found {chunk_count}.")
+elif null_embeddings > 0:
+    print(f"⚠️ Warning: {null_embeddings} chunks have null embeddings.")
+else:
+    print("✅ All 12 chunks present with valid non-null embeddings.")
+
+# --- Step 5b: Vector Search Endpoint & Delta Sync Index ---
+ENDPOINT_NAME = "movie_rag_endpoint"
+INDEX_NAME = f"{CATALOG}.{SCHEMA}.movie_knowledge_index"
+SOURCE_TABLE = f"{CATALOG}.{SCHEMA}.movie_knowledge_chunks"
+
+try:
+    # In-block import for safe interception in the Free Edition
+    from databricks.vector_search.client import VectorSearchClient
+    
+    vsc = VectorSearchClient()
+
+    # Attempt to retrieve or create a Vector Search Endpoint
+    try:
+        endpoint = vsc.get_endpoint(ENDPOINT_NAME)
+        print(f"Endpoint '{ENDPOINT_NAME}' already exists.")
+    except Exception:
+        print(f"Creating endpoint '{ENDPOINT_NAME}'...")
+        vsc.create_endpoint(name=ENDPOINT_NAME, endpoint_type="STANDARD")
+        print(f"Endpoint '{ENDPOINT_NAME}' created successfully.")
+
+    # Attempt to create or retrieve the Delta Sync Index
+    try:
+        index = vsc.get_index(endpoint_name=ENDPOINT_NAME, index_name=INDEX_NAME)
+        print(f"Index '{INDEX_NAME}' already exists.")
+    except Exception:
+        print(f"Creating Delta Sync Index '{INDEX_NAME}'...")
+        vsc.create_delta_sync_index(
+            endpoint_name=ENDPOINT_NAME,
+            index_name=INDEX_NAME,
+            source_table_name=SOURCE_TABLE,
+            pipeline_type="TRIGGERED",
+            primary_key="chunk_id",
+            embedding_vector_column="embedding",
+            embedding_dimension=384
+        )
+        print(f"Index '{INDEX_NAME}' created and syncing.")
+
+    print("\n Databricks Vector Search is ready for production-grade similarity search.")
+
+except (ImportError, ModuleNotFoundError):
+    print("\nℹ️ 'databricks-vectorsearch' client not installed in this environment.")
+    print("✅ Graceful Fallback: Vector Search Endpoint requires Enterprise Serverless quota.")
+    print("   In-memory Cosine Similarity (Notebook 02) remains the active retrieval engine.")
+
+except Exception as e:
+    print(f"\nℹ️ Vector Search setup info: {e}")
+    print("✅ Graceful Fallback: In-memory Cosine Similarity (Notebook 02) remains the active retrieval engine.")
