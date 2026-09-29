@@ -1,0 +1,14 @@
+resources:
+  jobs:
+    rag_knowledge_indexing_job:
+      name: "[${bundle.target}] RAG Knowledge Indexing Job"
+      tasks:
+        - task_key: index_movie_knowledge
+          notebook_task:
+            notebook_path: ../Lab 12/01_rag_data_prep_and_indexing.ipynb
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
