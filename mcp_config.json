@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "databricks-dev-kit": {
+      "command": "python",
+      "args": ["-m", ".ai-dev-kit.server"],
+      "env": {
+        "DATABRICKS_HOST": "https://dbc-825edb48-78cb.cloud.databricks.com",
+        "DATABRICKS_AUTH_TYPE": "pat"
+      }
+    }
+  }
+}

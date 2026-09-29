@@ -67,6 +67,10 @@ All assistant interactions are written to `main.lab_data.rag_audit_log` with use
 - **Acceleration:** AI coding assistants (Genie / Dev Kit MCP tools) accelerated boilerplate generation for text splitting, embedding pipelines, and initial schema definitions.
 - **Asset Bundle Integration:** Extended the modular DAB configuration (`Lab 8/resources/rag_indexing_job.yml`) to orchestrate RAG indexing via Databricks Jobs.
 
+### AI Dev Kit & MCP Server Setup
+- **Installation Script:** `./install.sh` (installs Databricks CLI, `databricks-sdk`, and `mcp`).
+- **MCP Server Configuration:** `mcp_config.json` (registers workspace MCP endpoints for AI coding agents).
+
 ### Bundle Sync Root Architecture Constraint
 
 During CI/CD integration, we encountered a critical bundle validation error:
