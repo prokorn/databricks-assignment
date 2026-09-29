@@ -30,6 +30,32 @@ This Capstone implements a **Movie Knowledge Assistant** answering deep trivia, 
 | **Without RAG (Blind)** | Zero-shot generic query to LLM | **High Risk:** The model generalizes or hallucinates scene reasons (e.g., attributing hospital detonation delays to technical failure). |
 | **With RAG (Context)** | System prompt injected with Top-K retrieved chunks | **Grounded Truth:** Strict adherence to internal corpus facts (e.g., Heath Ledger remaining in character during unexpected pyrotechnic delay). |
 
+### QA Workflow: End-to-End Question Answering
+
+The RAG question-answering workflow follows three stages:
+
+1. **Semantic Retrieval:** User query is encoded into a dense vector, then matched against stored chunk embeddings using cosine similarity to retrieve the top-K most relevant text chunks.
+2. **Context Injection:** Retrieved chunks are injected into the LLM system prompt, grounding the model's response in verifiable facts from the knowledge base.
+3. **Answer Generation:** The LLM generates a response based strictly on the provided context, with explicit instructions to say "I don't know" if the answer is not present.
+
+#### Example QA Interactions
+
+**Query 1: Hospital Explosion Scene**
+
+![QA Example 1](screenshots/Lab%2012%20QA%20LLM%201.png)
+
+**Query 2: Movie Production Details**
+
+![QA Example 2](screenshots/Lab%2012%20QA%20LLM%202.png)
+
+**Query 3: Technical Trivia**
+
+![QA Example 3](screenshots/Lab%2012%20QA%20LLM%203.png)
+
+**Query 4: Scientific Accuracy**
+
+![QA Example 4](screenshots/Lab%2012%20QA%20LLM%204.png)
+
 ### Monitoring & Governance
 All assistant interactions are written to `main.lab_data.rag_audit_log` with user query, retrieved context, and UTC timestamps to ensure compliance, auditing, and observability.
 
@@ -40,6 +66,30 @@ All assistant interactions are written to `main.lab_data.rag_audit_log` with use
 ### Databricks AI Dev Kit & Agent Workflow
 - **Acceleration:** AI coding assistants (Genie / Dev Kit MCP tools) accelerated boilerplate generation for text splitting, embedding pipelines, and initial schema definitions.
 - **Asset Bundle Integration:** Extended the modular DAB configuration (`Lab 8/resources/rag_indexing_job.yml`) to orchestrate RAG indexing via Databricks Jobs.
+
+### Bundle Sync Root Architecture Constraint
+
+During CI/CD integration, we encountered a critical bundle validation error:
+
+```
+Error: path /Lab 12/01_rag_data_prep_and_indexing is not contained in sync root path
+Name: movies_analytics_bundle
+Target: dev
+```
+
+**Root Cause:** Databricks Asset Bundles can only reference files **within their sync root directory**. The bundle root is `Lab 8/` (where `databricks.yml` resides), but the RAG notebook originally lived in `Lab 12/`, which is outside the sync boundary. DABs enforce this to ensure all deployed resources are versioned and tracked within a single coherent deployment unit.
+
+**Solution Implemented:**
+
+1. **Created `Lab 8/notebooks/` directory** within the bundle structure to house job-executed notebooks
+2. **Copied the RAG indexing notebook** from `Lab 12/` into `Lab 8/notebooks/01_rag_data_prep_and_indexing`
+3. **Updated the job task path** in `rag_indexing_job.yml`:
+   - **Before:** `notebook_path: ../../Lab 12/01_rag_data_prep_and_indexing`
+   - **After:** `notebook_path: ../notebooks/01_rag_data_prep_and_indexing`
+
+This ensures all job-referenced assets are contained within the bundle's deployment scope, allowing `databricks bundle validate --target dev` to pass and enabling proper CI/CD automation via GitHub Actions.
+
+**Key Takeaway:** When building modular DAB projects, always place notebooks, scripts, and configuration files that will be referenced by jobs **inside the bundle root directory structure**. Cross-bundle references are not supported.
 
 ### Human-in-the-Loop & Critical Guardrails
 While agentic tools speed up scaffolding, **human oversight was essential**:
