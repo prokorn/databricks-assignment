@@ -5,7 +5,7 @@ resources:
       tasks:
         - task_key: index_movie_knowledge
           notebook_task:
-            notebook_path: ../Lab 12/01_rag_data_prep_and_indexing.py
+            notebook_path: ../../Lab 12/01_rag_data_prep_and_indexing
 
       parameters:
         - name: catalog
